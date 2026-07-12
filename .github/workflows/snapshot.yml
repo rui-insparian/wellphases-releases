@@ -1,0 +1,36 @@
+name: Daily APK download snapshot
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 00:00 UTC = 08:00 Beijing
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append snapshot row
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p metrics
+          [ -f metrics/downloads.csv ] || echo "date,tag,asset,downloads" > metrics/downloads.csv
+          DATE=$(date -u +%F)
+          gh api "repos/${{ github.repository }}/releases" \
+            --jq '.[] | .tag_name as $t | .assets[] | [$t, .name, (.download_count|tostring)] | @csv' \
+            | while IFS= read -r line; do
+                echo "\"$DATE\",$line" >> metrics/downloads.csv
+              done
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add metrics/downloads.csv
+          git diff --cached --quiet || git commit -m "metrics: daily download snapshot $(date -u +%F)"
+          git push
